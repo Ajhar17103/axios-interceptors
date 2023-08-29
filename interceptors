@@ -1,44 +1,57 @@
 import axios from "axios";
-import dayjs from 'dayjs';
 import Cookies from "js-cookie";
 import jwt_decode from "jwt-decode";
 
-const baseURL = process.env.REACT_APP_BASE_URL_TWO;
+let baseURL = process.env.REACT_APP_BASE;
+let authTokens = Cookies.get("access_token")
+  ? Cookies.get("access_token")
+  : null;
 
-
-let authTokens = Cookies.get("access_token") ? Cookies.get("access_token") : null
-
+  
 const axiosInstance = axios.create({
-    baseURL: baseURL,
-    timeout: 5000,
-    headers: {
-        Authorization: `Bearer ${authTokens}`,
-        "Content-Type": "application/json",
-        accept: "application/json"
+  baseURL: baseURL,
+  timeout: 5000,
+  headers: {
+    Authorization: `Bearer ${authTokens}`,
+    "Content-Type": "application/json",
+    accept: "application/json",
+  },
+});
+
+axiosInstance.interceptors.request.use(async (req) => {
+  if (!authTokens) {
+    authTokens = Cookies.get("access_token")
+      ? Cookies.get("access_token")
+      : null;
+    req.headers.Authorization = `Bearer ${authTokens}`;
+  }
+
+  const user = jwt_decode(authTokens);
+
+  // Convert Unix timestamps to milliseconds
+  const expMilliseconds = user.exp * 1000; 
+
+  // Create Date objects
+  const expirationDate = new Date(expMilliseconds);
+
+  // Create Current Date objects
+  const currentDate = new Date();
+  
+  const isExpired = currentDate > expirationDate;
+
+  if (!isExpired) return req;
+
+  const response = await axios.post(
+    `${baseURL}/auth-service/api/v1/auth/refreshToken`,
+    {
+      refresh: Cookies.get("refresh_token"),
     }
-})
+  );
 
-axiosInstance.interceptors.request.use(async req => {
-    
-    if(!authTokens){
-        authTokens = Cookies.get("access_token") ? Cookies.get("access_token") : null
-        req.headers.Authorization = `Bearer ${authTokens}`
-    }
-
-    const user = jwt_decode(authTokens)
-    const isExpired = dayjs.unix(user.exp).diff(dayjs()) < 1;
-
-    if(!isExpired) return req
-
-    const response = await axios.post(`${baseURL}/users/api/v1/token/refresh/`, {
-        refresh: Cookies.get("refresh_token")
-      });
-
-      Cookies.set("refresh_token",response.data.refresh);
-      Cookies.set("access_token",response.data.access);
-    req.headers.Authorization = `Bearer ${response.data.access}`
-    return req
-})
-
+  Cookies.set("refresh_token", response.data.refresh);
+  Cookies.set("access_token", response.data.access);
+  req.headers.Authorization = `Bearer ${response.data.access}`;
+  return req;
+});
 
 export default axiosInstance;
